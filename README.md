@@ -1,4 +1,4 @@
-# VoiceTrainer Light
+# VoiceLoudness
 
 Eenvoudige webapp die de luidheid van je stem meet via de microfoon en toont
 hoe die zich verhoudt tot je gemiddelde volume. Werkt volledig in de browser,

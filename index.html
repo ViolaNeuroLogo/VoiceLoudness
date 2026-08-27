@@ -7,8 +7,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="VoiceTrainer">
-<title>VoiceTrainer Light</title>
+<meta name="apple-mobile-web-app-title" content="VoiceLoudness">
+<title>VoiceLoudness</title>
 <style>
   :root {
     --bg: #12141a;
@@ -143,7 +143,7 @@
 </head>
 <body>
 
-  <h1>VoiceTrainer Light — luidheid van je stem</h1>
+  <h1>VoiceLoudness — luidheid van je stem</h1>
 
   <div class="stage">
     <div id="avgRing"></div>
@@ -177,14 +177,24 @@
 <script>
 (() => {
   // Instelbare grenzen (in dB, ruwweg -60 = stilte, 0 = maximaal luid)
-  const SILENCE_DB   = -50;   // onder deze grens telt het niet mee als "spreken"
+  const SILENCE_DB   = -60;   // onder deze grens telt het niet mee als "spreken" (moet onder SOFT_ABS_DB liggen, anders is blauw onbereikbaar)
   const MIN_DB       = -50;
   const MAX_DB       = -8;
   const MIN_RADIUS   = 18;    // px
   const AVG_ALPHA    = 0.01;  // hoe snel het gemiddelde bijtrekt (klein = traag/stabiel)
-  const ATTACK       = 0.55;  // hoe snel de stip groeit bij harder praten
-  const RELEASE      = 0.12;  // hoe snel de stip krimpt bij zachter praten
-  const TOLERANCE_DB = 3;     // marge rond het gemiddelde die als "goed" geldt
+  const ATTACK       = 0.25;  // hoe snel de stip groeit bij harder praten
+  const RELEASE      = 0.10;  // hoe snel de stip krimpt bij zachter praten
+  const SMOOTHING_WINDOW = 8; // aantal frames dat eerst gemiddeld wordt, dempt kortstondige piekjes (ademhaling, plofklanken)
+
+  // De microfoon levert alleen een relatief signaalniveau (dBFS), geen
+  // gekalibreerd geluidsniveau (dB SPL) zoals een decibelmeter. Deze offset
+  // zet dat relatieve niveau om naar een geschatte dB-waarde, zodat de
+  // "te luid"-grens hieronder als een concreet getal ingesteld kan worden.
+  // Klopt de 65 dB-grens niet met een echte decibelmeter? Pas dan alleen
+  // deze offset aan.
+  const CALIBRATION_OFFSET_DB = 100;
+  const LOUD_ABS_DB = 65; // pas boven dit (geschatte) dB-niveau wordt de stip oranje
+  const SOFT_ABS_DB = 45; // op en onder dit (geschatte) dB-niveau wordt de stip blauw
 
   const dotEl = document.getElementById('dot');
   const ringEl = document.getElementById('avgRing');
@@ -198,6 +208,7 @@
   let smoothedDb = MIN_DB;
   let avgDb = null; // pas gezet zodra er echt gesproken wordt
   let running = false;
+  let dbBuffer = [];
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
@@ -229,11 +240,17 @@
     analyser.getByteTimeDomainData(data);
     const instantDb = computeDb(data);
 
+    // eerst een kort lopend gemiddelde om piekjes (ademhaling, plofklanken) te dempen
+    dbBuffer.push(instantDb);
+    if (dbBuffer.length > SMOOTHING_WINDOW) dbBuffer.shift();
+    const windowedDb = dbBuffer.reduce((a, b) => a + b, 0) / dbBuffer.length;
+
     // asymmetrische smoothing: snel omhoog, rustiger omlaag
-    const alpha = instantDb > smoothedDb ? ATTACK : RELEASE;
-    smoothedDb = smoothedDb + alpha * (instantDb - smoothedDb);
+    const alpha = windowedDb > smoothedDb ? ATTACK : RELEASE;
+    smoothedDb = smoothedDb + alpha * (windowedDb - smoothedDb);
 
     const speaking = smoothedDb > SILENCE_DB;
+    const calibratedDb = smoothedDb + CALIBRATION_OFFSET_DB;
 
     if (speaking) {
       avgDb = (avgDb === null) ? smoothedDb : (avgDb + AVG_ALPHA * (smoothedDb - avgDb));
@@ -246,14 +263,16 @@
     dotEl.style.width = (radius * 2) + 'px';
     dotEl.style.height = (radius * 2) + 'px';
 
-    // kleur: vergelijking t.o.v. gemiddelde
+    // kleur: oranje/blauw bij vaste (geschatte) dB-niveaus, anders groen
     let color = 'var(--gray)';
-    if (avgDb !== null) {
-      const diff = smoothedDb - avgDb;
-      if (!speaking) color = 'var(--gray)';
-      else if (Math.abs(diff) <= TOLERANCE_DB) color = 'var(--green)';
-      else if (diff > TOLERANCE_DB) color = 'var(--orange)';
-      else color = 'var(--blue)';
+    if (!speaking) {
+      color = 'var(--gray)';
+    } else if (calibratedDb >= LOUD_ABS_DB) {
+      color = 'var(--orange)';
+    } else if (calibratedDb <= SOFT_ABS_DB) {
+      color = 'var(--blue)';
+    } else {
+      color = 'var(--green)';
     }
     dotEl.style.background = color;
 
@@ -264,8 +283,8 @@
       ringEl.style.height = (avgRadius * 2) + 'px';
     }
 
-    curDbEl.textContent = Math.round(smoothedDb) + ' dB';
-    avgDbEl.textContent = (avgDb === null) ? '—' : Math.round(avgDb) + ' dB';
+    curDbEl.textContent = Math.round(calibratedDb) + ' dB';
+    avgDbEl.textContent = (avgDb === null) ? '—' : Math.round(avgDb + CALIBRATION_OFFSET_DB) + ' dB';
     statusEl.textContent = speaking ? 'Aan het luisteren… je spreekt.' : 'Aan het luisteren… (stil)';
 
     rafId = requestAnimationFrame(tick);
@@ -273,7 +292,13 @@
 
   async function start() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: false,
+          noiseSuppression: false,
+          echoCancellation: false
+        }
+      });
     } catch (err) {
       statusEl.textContent = 'Geen toegang tot de microfoon: ' + err.message;
       return;
