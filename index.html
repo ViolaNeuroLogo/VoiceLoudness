@@ -169,7 +169,6 @@
 
   <div class="controls">
     <button id="startBtn">Start</button>
-    <button id="resetBtn" disabled>Reset gemiddelde</button>
   </div>
 
   <div id="status">Klik op “Start” en geef toegang tot de microfoon.</div>
@@ -202,7 +201,6 @@
   const avgDbEl = document.getElementById('avgDb');
   const statusEl = document.getElementById('status');
   const startBtn = document.getElementById('startBtn');
-  const resetBtn = document.getElementById('resetBtn');
 
   let audioCtx, analyser, source, stream, rafId, wakeLock;
   let smoothedDb = MIN_DB;
@@ -312,7 +310,6 @@
 
     running = true;
     startBtn.textContent = 'Stop';
-    resetBtn.disabled = false;
     tick();
 
     // voorkomt dat het (telefoon)scherm tijdens het oefenen vergrendelt
@@ -328,7 +325,6 @@
     if (audioCtx) audioCtx.close();
     if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
     startBtn.textContent = 'Start';
-    resetBtn.disabled = true;
     statusEl.textContent = 'Gestopt. Klik op “Start” om opnieuw te beginnen.';
     dotEl.style.width = '40px';
     dotEl.style.height = '40px';
@@ -337,15 +333,9 @@
     ringEl.style.height = '40px';
   }
 
-  function resetAverage() {
-    avgDb = null;
-    avgDbEl.textContent = '—';
-  }
-
   startBtn.addEventListener('click', () => {
     if (running) stop(); else start();
   });
-  resetBtn.addEventListener('click', resetAverage);
 })();
 </script>
 </body>
