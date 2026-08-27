@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#12141a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="VoiceTrainer">
+<title>VoiceTrainer Light</title>
+<style>
+  :root {
+    --bg: #12141a;
+    --fg: #e8eaf0;
+    --muted: #8a90a2;
+    --ring: #4a5068;
+    --green: #4caf82;
+    --orange: #e0a03c;
+    --blue: #4c8ce0;
+    --gray: #6b7080;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+  html { height: -webkit-fill-available; }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    min-height: 100vh;
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  h1 {
+    font-size: clamp(14px, 4.2vw, 18px);
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0;
+    letter-spacing: 0.02em;
+    text-align: center;
+  }
+  .stage {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  #avgRing {
+    position: absolute;
+    border-radius: 50%;
+    border: 2px dashed var(--ring);
+    width: 40px;
+    height: 40px;
+    transition: width 0.25s ease, height 0.25s ease;
+    pointer-events: none;
+  }
+  #dot {
+    position: absolute;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    background: var(--gray);
+    box-shadow: 0 0 40px 0 rgba(255,255,255,0.05);
+  }
+  .readout {
+    display: flex;
+    gap: clamp(20px, 8vw, 32px);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 8px;
+  }
+  .readout div {
+    text-align: center;
+  }
+  .readout .label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .readout .value {
+    font-size: clamp(20px, 6vw, 24px);
+    font-weight: 600;
+  }
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 8px;
+    width: 100%;
+    max-width: 360px;
+  }
+  button {
+    flex: 1;
+    font-size: 15px;
+    padding: 14px 20px;
+    min-height: 48px;
+    border-radius: 10px;
+    border: 1px solid var(--ring);
+    background: #1c1f28;
+    color: var(--fg);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:hover { background: #262a36; }
+  button:active { background: #262a36; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  #status {
+    color: var(--muted);
+    font-size: 12px;
+    min-height: 16px;
+    text-align: center;
+    padding: 0 8px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px 16px;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+  <h1>VoiceTrainer Light — luidheid van je stem</h1>
+
+  <div class="stage">
+    <div id="avgRing"></div>
+    <div id="dot"></div>
+  </div>
+
+  <div class="readout">
+    <div>
+      <div class="label">Huidig</div>
+      <div class="value" id="curDb">— dB</div>
+    </div>
+    <div>
+      <div class="label">Gemiddeld</div>
+      <div class="value" id="avgDb">— dB</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--green)"></i>rond gemiddelde</span>
+    <span><i class="swatch" style="background:var(--orange)"></i>te luid</span>
+    <span><i class="swatch" style="background:var(--blue)"></i>te zacht</span>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn">Start</button>
+    <button id="resetBtn" disabled>Reset gemiddelde</button>
+  </div>
+
+  <div id="status">Klik op “Start” en geef toegang tot de microfoon.</div>
+
+<script>
+(() => {
+  // Instelbare grenzen (in dB, ruwweg -60 = stilte, 0 = maximaal luid)
+  const SILENCE_DB   = -50;   // onder deze grens telt het niet mee als "spreken"
+  const MIN_DB       = -50;
+  const MAX_DB       = -8;
+  const MIN_RADIUS   = 18;    // px
+  const AVG_ALPHA    = 0.01;  // hoe snel het gemiddelde bijtrekt (klein = traag/stabiel)
+  const ATTACK       = 0.55;  // hoe snel de stip groeit bij harder praten
+  const RELEASE      = 0.12;  // hoe snel de stip krimpt bij zachter praten
+  const TOLERANCE_DB = 3;     // marge rond het gemiddelde die als "goed" geldt
+
+  const dotEl = document.getElementById('dot');
+  const ringEl = document.getElementById('avgRing');
+  const curDbEl = document.getElementById('curDb');
+  const avgDbEl = document.getElementById('avgDb');
+  const statusEl = document.getElementById('status');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  let audioCtx, analyser, source, stream, rafId, wakeLock;
+  let smoothedDb = MIN_DB;
+  let avgDb = null; // pas gezet zodra er echt gesproken wordt
+  let running = false;
+
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  function mapRange(v, inMin, inMax, outMin, outMax) {
+    const t = clamp((v - inMin) / (inMax - inMin), 0, 1);
+    return outMin + t * (outMax - outMin);
+  }
+
+  function getMaxRadius() {
+    // stip mag nooit groter worden dan de kleinste kant van het scherm toelaat
+    const stageRect = dotEl.parentElement.getBoundingClientRect();
+    const minDim = Math.min(stageRect.width, stageRect.height);
+    return clamp(minDim * 0.42, 60, 160);
+  }
+
+  function computeDb(dataArray) {
+    let sumSquares = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const v = (dataArray[i] - 128) / 128;
+      sumSquares += v * v;
+    }
+    const rms = Math.sqrt(sumSquares / dataArray.length);
+    const db = 20 * Math.log10(rms || 1e-8);
+    return clamp(db, -80, 0);
+  }
+
+  function tick() {
+    const data = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(data);
+    const instantDb = computeDb(data);
+
+    // asymmetrische smoothing: snel omhoog, rustiger omlaag
+    const alpha = instantDb > smoothedDb ? ATTACK : RELEASE;
+    smoothedDb = smoothedDb + alpha * (instantDb - smoothedDb);
+
+    const speaking = smoothedDb > SILENCE_DB;
+
+    if (speaking) {
+      avgDb = (avgDb === null) ? smoothedDb : (avgDb + AVG_ALPHA * (smoothedDb - avgDb));
+    }
+
+    const maxRadius = getMaxRadius();
+
+    // stip: grootte volgt huidige luidheid
+    const radius = mapRange(smoothedDb, MIN_DB, MAX_DB, MIN_RADIUS, maxRadius);
+    dotEl.style.width = (radius * 2) + 'px';
+    dotEl.style.height = (radius * 2) + 'px';
+
+    // kleur: vergelijking t.o.v. gemiddelde
+    let color = 'var(--gray)';
+    if (avgDb !== null) {
+      const diff = smoothedDb - avgDb;
+      if (!speaking) color = 'var(--gray)';
+      else if (Math.abs(diff) <= TOLERANCE_DB) color = 'var(--green)';
+      else if (diff > TOLERANCE_DB) color = 'var(--orange)';
+      else color = 'var(--blue)';
+    }
+    dotEl.style.background = color;
+
+    // referentiering: grootte van het gemiddelde
+    if (avgDb !== null) {
+      const avgRadius = mapRange(avgDb, MIN_DB, MAX_DB, MIN_RADIUS, maxRadius);
+      ringEl.style.width = (avgRadius * 2) + 'px';
+      ringEl.style.height = (avgRadius * 2) + 'px';
+    }
+
+    curDbEl.textContent = Math.round(smoothedDb) + ' dB';
+    avgDbEl.textContent = (avgDb === null) ? '—' : Math.round(avgDb) + ' dB';
+    statusEl.textContent = speaking ? 'Aan het luisteren… je spreekt.' : 'Aan het luisteren… (stil)';
+
+    rafId = requestAnimationFrame(tick);
+  }
+
+  async function start() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      statusEl.textContent = 'Geen toegang tot de microfoon: ' + err.message;
+      return;
+    }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') await audioCtx.resume(); // vereist op iOS Safari
+    source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+
+    running = true;
+    startBtn.textContent = 'Stop';
+    resetBtn.disabled = false;
+    tick();
+
+    // voorkomt dat het (telefoon)scherm tijdens het oefenen vergrendelt
+    if ('wakeLock' in navigator) {
+      navigator.wakeLock.request('screen').then(lock => { wakeLock = lock; }).catch(() => {});
+    }
+  }
+
+  function stop() {
+    running = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    if (audioCtx) audioCtx.close();
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    startBtn.textContent = 'Start';
+    resetBtn.disabled = true;
+    statusEl.textContent = 'Gestopt. Klik op “Start” om opnieuw te beginnen.';
+    dotEl.style.width = '40px';
+    dotEl.style.height = '40px';
+    dotEl.style.background = 'var(--gray)';
+    ringEl.style.width = '40px';
+    ringEl.style.height = '40px';
+  }
+
+  function resetAverage() {
+    avgDb = null;
+    avgDbEl.textContent = '—';
+  }
+
+  startBtn.addEventListener('click', () => {
+    if (running) stop(); else start();
+  });
+  resetBtn.addEventListener('click', resetAverage);
+})();
+</script>
+</body>
+</html>
